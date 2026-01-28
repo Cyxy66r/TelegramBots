@@ -7,9 +7,9 @@ import yt_dlp
 from urllib.parse import urlparse
 
 # CONFIG - UPDATE THESE!
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("8209355827:AAHfJ8ew5YmTyAu4VoRrj2T3UZBq2m1ZrQM")
+API_ID = int(os.getenv("37753288"))
+API_HASH = os.getenv("68f5e26ac13f659083814b1f032ffc29")
 
 app = Client("kawaii_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
