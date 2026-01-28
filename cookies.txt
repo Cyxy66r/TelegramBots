@@ -1,0 +1,21 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.google.com	TRUE	/	TRUE	1785135902	AEC	AaJma5shsOBynjY60mRhh-wmDcVwSimcGtnfv52AH5Z-7Y4rEBz9PJ1U4yo
+.google.com	TRUE	/	TRUE	1785135902	__Secure-BUCKET	CPoF
+.google.com	TRUE	/verify	TRUE	1785395102	SNID	AEEKqIu0hh6Wf42FCy5wzoupNuoqeiz1Mu02WYxkmiT8MFD0FJM-46NZ4F9dfmz77eMss3CJFsaQQPcB_rz1eC33RcME2fBuGw
+.google.com	TRUE	/	TRUE	1769584693	__Secure-STRP	AD6Dogv2wzwigS5lCTxCyDXPUTeOMgkkNsTWtJfb0P7FzQuVRQ5Aj5N655mJLxibM7RSSa7VZIw8QTelPZBVKDsQ53sZGOau84v9
+www.google.com	FALSE	/	FALSE	1769584994	DV	48ID_M0hFoMakMPdkvyzBNZJiy83wBk
+.google.com	TRUE	/	TRUE	1785395102	NID	528=JvBKImzwKZyzvcflCdQU9jMHv1yAifiTkixG9NhU3eN8TRd9p0Sf7-r8_TaatiZ6XxDSP--uWYLojy4yzENToICokdlMZ7VtlYCIFB01nh0pydjusoFOXdlWz6iG3VCgCBCP0Mn_0sxZ40F6jKOLNoPighCt6Z2_SieXf29FAWzblbHy-ZOqZ4t6VcNrIEUfdqdT68LVUhBigpzne5eLKeYs9A8EblXt82oAPveXV-_OLnisPZh0HdP0ot7-TLmXuEDzttnryiW6kMkK4DdT
+.instagram.com	TRUE	/	TRUE	1804144395	datr	Crd5aTQwdi-gNnKMLF2_ilp5
+.instagram.com	TRUE	/	TRUE	1801120395	ig_did	6F41521A-ACE7-46F5-8DA7-D0E93FCD0F5E
+.instagram.com	TRUE	/	TRUE	1804144400	mid	aXm3CgABAAHDfo4SDVjg0jc0-NBl
+.instagram.com	TRUE	/	TRUE	1801120593	sessionid	74848749961%3A5gdDU1xiFjEN2M%3A4%3AAYjMyTqUqgg_id96VViAhktMW5YN-cpxF0LmjsLBrQ
+.instagram.com	TRUE	/	TRUE	1770189403	wd	384x691
+.instagram.com	TRUE	/	TRUE	1770189403	dpr	1.875
+.instagram.com	TRUE	/	TRUE	1804144631	csrftoken	bcCgT5LyQuqF882r83V1QKi8jaEzL3fl
+.instagram.com	TRUE	/	TRUE	0	rur	"RVA\05474848749961\0541801120630:01fe1b9c38028cb8e15f032dc59eedf9e483842c7167f96685e87be38eaf92bd8b2dee68"
+.instagram.com	TRUE	/	TRUE	1777360631	ds_user_id	74848749961
+.facebook.com	TRUE	/	TRUE	1777360544	fr	09z55A2CQEZJHBVLx.AWfIvchqELDnPxgMSvVYFlCQMiUyx-DMEL6MIIaltbkPG7DOvC8.Bpebef..AAA.0.0.Bpebef.AWdCKBrKJMzhQCQyIsKh20hJikU
+.fbsbx.com	TRUE	/	FALSE	1777360612	_gcl_au	1.1.822854586.1769584612
