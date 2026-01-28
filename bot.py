@@ -1,211 +1,209 @@
+#!/usr/bin/env python3
+"""
+@KawaII5Bot - Advanced Telegram Video/Audio Downloader
+Powered by yt-dlp + Pyrogram + FFmpeg
+Supports 1000+ platforms with cookies authentication
+"""
+
 import os
 import asyncio
+import logging
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.errors import FloodWait
 import yt_dlp
-from urllib.parse import urlparse
+import ffmpeg
 
-# ================= CONFIG =================
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Bot configuration
 BOT_TOKEN = os.getenv("8209355827:AAHfJ8ew5YmTyAu4VoRrj2T3UZBq2m1ZrQM")
 API_ID = int(os.getenv("37753288"))
 API_HASH = os.getenv("68f5e26ac13f659083814b1f032ffc29")
+COOKIES_FILE = "cookies.txt"
 
-app = Client("kawaii_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("KawaII5Bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-downloads_dir = "downloads"
-pending_urls = {}
+# Video/Audio quality options
+VIDEO_QUALITIES = ["360p", "480p", "720p", "1080p", "1440p", "2160p", "best"]
+AUDIO_BITRATES = ["64k", "128k", "192k", "256k", "320k"]
 
-# ================= QUEUE SYSTEM =================
-download_queue = asyncio.Queue()
-
-# ================= COOKIE FILES =================
-COOKIE_FILES = {
-    "instagram": "cookies/instagram.txt",
-    "facebook": "cookies/facebook.txt",
-    "youtube": "cookies/youtube.txt",
-    "tiktok": "cookies/tiktok.txt",
-    "twitter": "cookies/twitter.txt",
-    "x": "cookies/twitter.txt",
-}
-
-# ================= VIDEO QUALITIES =================
-VIDEO_QUALITIES = {
-    "4k": "bestvideo[height>=2160]+bestaudio/best",
-    "2k": "bestvideo[height>=1440]+bestaudio/best",
-    "fhd": "bestvideo[height<=1080]+bestaudio/best",
-    "hd": "bestvideo[height<=720]+bestaudio/best",
-    "sd": "bestvideo[height<=480]+bestaudio/best",
-    "low": "bestvideo[height<=360]+bestaudio/best"
-}
-
-# ================= HELPERS =================
-def get_platform(url: str):
-    d = urlparse(url).netloc.lower()
-    if "instagram" in d:
-        return "instagram"
-    if "facebook" in d:
-        return "facebook"
-    if "youtu" in d:
-        return "youtube"
-    if "tiktok" in d:
-        return "tiktok"
-    if "twitter" in d or "x.com" in d:
-        return "twitter"
-    return None
-
-def get_cookie_file(url: str):
-    platform = get_platform(url)
-    cookie = COOKIE_FILES.get(platform)
-    return cookie if cookie and os.path.exists(cookie) else None
-
-def is_valid_url(url: str) -> bool:
-    p = urlparse(url)
-    return bool(p.scheme and p.netloc)
-
-# ================= QUEUE WORKER =================
-async def queue_worker():
-    while True:
-        job = await download_queue.get()
+class DownloadManager:
+    def __init__(self):
+        self.download_tasks = {}
+    
+    async def download_media(self, url: str, quality: str, media_type: str = "video"):
+        """Download media using yt-dlp"""
         try:
-            mode, callback, url, value = job
-            if mode == "video":
-                await download_video(callback, url, value)
+            ydl_opts = {
+                'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+                'noplaylist': True,
+                'quiet': True,
+            }
+            
+            if media_type == "audio":
+                ydl_opts.update({
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': quality,
+                    }],
+                })
             else:
-                await download_audio(callback, url, value)
+                ydl_opts.update({
+                    'format': quality if quality != "best" else 'best[height<=?2160]',
+                })
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                title = info.get('title', 'Unknown')
+                filename = ydl.prepare_filename(info)
+                
+                # Download
+                ydl.download([url])
+                
+                # Fix filename for audio
+                if media_type == "audio":
+                    filename = filename.rsplit('.', 1)[0] + '.mp3'
+                
+                return filename, title
+                
         except Exception as e:
-            await callback.message.reply(f"❌ Download failed:\n`{e}`")
-        finally:
-            download_queue.task_done()
+            logger.error(f"Download failed: {e}")
+            return None, str(e)
 
-# ================= START =================
+download_manager = DownloadManager()
+
 @app.on_message(filters.command("start"))
-async def start(client, message: Message):
-    await message.reply_text(
-        "🎥 **KawaII5Bot Downloader**\n\n"
-        "Send a video link 👇"
-    )
+async def start_command(client, message):
+    """Start command with platform info"""
+    welcome_text = """
+🎥 **@KawaII5Bot** - Universal Downloader
 
-# ================= URL INPUT =================
-@app.on_message(filters.text & ~filters.command("start"))
-async def process_url(client, message: Message):
+**Supported (1000+ platforms):**
+• 📺 YouTube (4K/8K)
+• 📱 Instagram Reels/Stories
+• 📘 Facebook Videos
+• 🎵 TikTok (No watermark)
+• 🐦 Twitter/X
+• 🎦 Vimeo + 1000+ more!
+
+**Send any video/audio URL!** 👇
+"""
+    await message.reply(welcome_text)
+
+@app.on_message(filters.text & ~filters.command(["start"]))
+async def handle_url(client, message):
+    """Handle URL messages"""
     url = message.text.strip()
-
-    if not is_valid_url(url):
-        return await message.reply("❌ Invalid URL")
-
-    pending_urls[message.chat.id] = url
-
-    kb = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("4K", callback_data="v_4k"),
-            InlineKeyboardButton("2K", callback_data="v_2k")
-        ],
-        [
-            InlineKeyboardButton("1080p", callback_data="v_fhd"),
-            InlineKeyboardButton("720p", callback_data="v_hd")
-        ],
-        [
-            InlineKeyboardButton("480p", callback_data="v_sd"),
-            InlineKeyboardButton("360p", callback_data="v_low")
-        ],
-        [
-            InlineKeyboardButton("MP3", callback_data="a_128")
-        ]
-    ])
-
-    await message.reply_text("Select quality:", reply_markup=kb)
-
-# ================= CALLBACK =================
-@app.on_callback_query()
-async def handle_callback(client, callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-
-    if chat_id not in pending_urls:
-        return await callback.answer("Send URL first", show_alert=True)
-
-    url = pending_urls[chat_id]
-    data = callback.data
-
-    if data.startswith("v_"):
-        quality = data[2:]
-        await download_queue.put(("video", callback, url, quality))
-    elif data.startswith("a_"):
-        bitrate = data[2:]
-        await download_queue.put(("audio", callback, url, bitrate))
-    else:
+    
+    if not url:
         return
-
-    position = download_queue.qsize()
-    await callback.edit_message_text(
-        f"✅ Added to queue\n⏳ Position: **{position}**"
+    
+    # Check if valid URL
+    if not ("http://" in url or "https://" in url):
+        await message.reply("❌ Please send a valid URL!")
+        return
+    
+    await message.reply("🔍 **Analyzing URL...**")
+    
+    # Create inline keyboard for options
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎥 Video", callback_data=f"video_best_{url}")],
+        [
+            InlineKeyboardButton("🎵 Audio 320k", callback_data=f"audio_320k_{url}"),
+            InlineKeyboardButton("📱 720p", callback_data=f"video_720p_{url}")
+        ],
+        [
+            InlineKeyboardButton("🔥 1080p", callback_data=f"video_1080p_{url}"),
+            InlineKeyboardButton("🎬 4K", callback_data=f"video_2160p_{url}")
+        ],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel")]
+    ])
+    
+    await message.reply(
+        "⚙️ **Select quality:**",
+        reply_markup=keyboard
     )
 
-# ================= VIDEO =================
-async def download_video(callback: CallbackQuery, url: str, quality: str):
-    os.makedirs(downloads_dir, exist_ok=True)
-    cookie_file = get_cookie_file(url)
+@app.on_callback_query()
+async def handle_callback(client: Client, callback: CallbackQuery):
+    """Handle inline keyboard callbacks"""
+    data = callback.data
+    await callback.answer()
+    
+    if data == "cancel":
+        await callback.edit_message_text("❌ Cancelled!")
+        return
+    
+    # Parse callback data: type_quality_url
+    parts = data.split("_", 2)
+    if len(parts) != 3:
+        await callback.edit_message_text("❌ Invalid selection!")
+        return
+    
+    media_type, quality, url = parts
+    
+    if media_type not in ["video", "audio"]:
+        await callback.edit_message_text("❌ Invalid media type!")
+        return
+    
+    await callback.edit_message_text("⏳ **Downloading...** (This may take a while)")
+    
+    # Download
+    filename, title = await download_manager.download_media(url, quality, media_type)
+    
+    if not filename or not os.path.exists(filename):
+        await callback.edit_message_text(f"❌ **Download failed:**\n`{title}`")
+        return
+    
+    # Send file
+    try:
+        await callback.edit_message_text("📤 **Uploading...**")
+        
+        if media_type == "audio":
+            await client.send_audio(
+                callback.message.chat.id,
+                filename,
+                caption=f"🎵 **{title}**\n`{quality} MP3`",
+                title=title,
+                performer="KawaII5Bot"
+            )
+        else:
+            await client.send_video(
+                callback.message.chat.id,
+                filename,
+                caption=f"🎥 **{title}**\n`{quality}`",
+                supports_streaming=True
+            )
+        
+        # Cleanup
+        os.remove(filename)
+        await callback.edit_message_text("✅ **Done!** File cleaned up.")
+        
+    except FloodWait as e:
+        await callback.edit_message_text(f"⏳ Rate limited. Wait {e.value} seconds.")
+    except Exception as e:
+        await callback.edit_message_text(f"❌ **Upload failed:** {str(e)}")
+        if os.path.exists(filename):
+            os.remove(filename)
 
-    ydl_opts = {
-        "format": VIDEO_QUALITIES[quality],
-        "outtmpl": f"{downloads_dir}/%(title).200s_[{quality}].%(ext)s",
-        "merge_output_format": "mp4",
-        "cookiefile": cookie_file,
-        "quiet": True
-    }
+async def main():
+    """Main function"""
+    logger.info("Starting KawaII5Bot...")
+    
+    # Check cookies file
+    if os.path.exists(COOKIES_FILE):
+        logger.info("✅ Cookies file found")
+    else:
+        logger.warning("⚠️ No cookies.txt - Private content won't work")
+    
+    await app.start()
+    logger.info("🚀 Bot started successfully!")
+    await asyncio.Event().wait()  # Keep running
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-
-    file_path = next(
-        os.path.join(downloads_dir, f)
-        for f in os.listdir(downloads_dir)
-        if f"[{quality}]" in f
-    )
-
-    await callback.message.reply_video(
-        video=file_path,
-        caption=f"🎬 **{info.get('title','Video')}**",
-        supports_streaming=True
-    )
-
-    os.remove(file_path)
-
-# ================= AUDIO =================
-async def download_audio(callback: CallbackQuery, url: str, bitrate: str):
-    os.makedirs(downloads_dir, exist_ok=True)
-    cookie_file = get_cookie_file(url)
-
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": f"{downloads_dir}/%(title).200s_[audio].%(ext)s",
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": bitrate,
-        }],
-        "cookiefile": cookie_file,
-        "quiet": True
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-
-    file_path = next(
-        os.path.join(downloads_dir, f)
-        for f in os.listdir(downloads_dir)
-        if f.endswith(".mp3")
-    )
-
-    await callback.message.reply_audio(
-        audio=file_path,
-        title=info.get("title", "Audio")
-    )
-
-    os.remove(file_path)
-
-# ================= RUN =================
 if __name__ == "__main__":
-    os.makedirs(downloads_dir, exist_ok=True)
-    loop = asyncio.get_event_loop()
-    loop.create_task(queue_worker())
-    app.run()
+    asyncio.run(main())
