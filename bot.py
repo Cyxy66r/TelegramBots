@@ -6,7 +6,7 @@ import yt_dlp
 from urllib.parse import urlparse
 
 # Bot configuration - CHANGE THESE!
-BOT_TOKEN = "8348615649:AAFY799SOdeKpLwtDTgHKyVdgU3HSxgjbtY"
+BOT_TOKEN = "8209355827:AAHfJ8ew5YmTyAu4VoRrj2T3UZBq2m1ZrQM"
 API_ID = "37753288"  # my.telegram.org
 API_HASH = "68f5e26ac13f659083814b1f032ffc29"
 
