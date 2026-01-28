@@ -1,169 +1,214 @@
 import os
+import re
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 import yt_dlp
 from urllib.parse import urlparse
 
-# Bot configuration - CHANGE THESE!
-BOT_TOKEN = "8209355827:AAHfJ8ew5YmTyAu4VoRrj2T3UZBq2m1ZrQM"
-API_ID = "37753288"  # my.telegram.org
-API_HASH = "68f5e26ac13f659083814b1f032ffc29"
+# CONFIG - UPDATE THESE!
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
 
-app = Client("video_downloader_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("kawaii_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Quality selectors
+# Cookies file (for Instagram/FB login)
+COOKIES_FILE = "cookies.txt"
+
+# Global storage
+pending_urls = {}
+downloads_dir = "downloads"
+
 VIDEO_QUALITIES = {
     "4k": "best[height>=2160]",
-    "2k": "best[height>=1440]", 
-    "1080p": "best[height<=1080]",
-    "720p": "best[height<=720]",
-    "480p": "best[height<=480]",
-    "360p": "best[height<=360]"
+    "2k": "best[height>=1440]",
+    "fhd": "best[height<=1080]",
+    "hd": "best[height<=720]",
+    "sd": "best[height<=480]",
+    "low": "best[height<=360]"
 }
-
-AUDIO_BITRATES = {
-    "320kbps": 320,
-    "256kbps": 256,
-    "192kbps": 192,
-    "128kbps": 128,
-    "64kbps": 64
-}
-
-user_data = {}  # Store user URLs temporarily
 
 @app.on_message(filters.command("start"))
-async def start_command(client, message):
-    welcome_text = """
-🎥 **PRO Video Downloader Bot**
-
-**Supported:** Instagram • Facebook • YouTube • TikTok • Twitter + 1000+ sites!
-
-**🎬 Video:** 4K • 2K • 1080p • 720p • 480p • 360p
-**🎵 Audio:** 320kbps • 256kbps • 192kbps • 128kbps • 64kbps
-
-Just send any video link! 👇
-    """
-    
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 VIDEO OPTIONS", callback_data="video_menu")],
-        [InlineKeyboardButton("🎵 AUDIO OPTIONS", callback_data="audio_menu")]
+async def start(client, message: Message):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 VIDEO DOWNLOAD", callback_data="video_menu")],
+        [InlineKeyboardButton("🎵 AUDIO ONLY", callback_data="audio_menu")],
+        [InlineKeyboardButton("🍪 COOKIES HELP", callback_data="cookies_help")]
     ])
-    
-    await message.reply_text(welcome_text, reply_markup=buttons, disable_web_page_preview=True)
+    await message.reply_text(
+        "🎥 **KawaII5Bot** - Ultimate Downloader\n\n"
+        "✅ **1000+ Platforms:** YouTube • Instagram • Facebook • TikTok • Twitter\n"
+        "🎬 **Qualities:** 4K • 2K • 1080p • 720p • 480p • 360p\n"
+        "🎵 **Audio:** 320-64kbps\n\n"
+        "**Send any video link!** 👇",
+        reply_markup=kb,
+        disable_web_page_preview=True
+    )
 
 @app.on_message(filters.text & ~filters.command("start"))
-async def handle_url(client, message):
+async def process_url(client, message: Message):
     url = message.text.strip()
     
-    # Check if it's a valid URL
-    if not urlparse(url).scheme:
-        return await message.reply("❌ Send a **valid URL** (http/https)")
+    # URL validation
+    if not is_valid_url(url):
+        return await message.reply("❌ **Invalid URL!**\nUse: `https://...`", parse_mode="markdown")
     
-    user_data[message.from_user.id] = url
-    await message.reply("✅ **URL saved!**\n\nChoose quality below 👇")
+    chat_id = message.chat.id
+    pending_urls[chat_id] = {"url": url, "message_id": message.id}
+    
+    # Video quality buttons
+    video_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎥 4K UHD", callback_data="v_4k"),
+            InlineKeyboardButton("📺 2K QHD", callback_data="v_2k")
+        ],
+        [
+            InlineKeyboardButton("✨ 1080p FHD", callback_data="v_fhd"),
+            InlineKeyboardButton("✅ 720p HD", callback_data="v_hd")
+        ],
+        [
+            InlineKeyboardButton("📱 480p", callback_data="v_sd"),
+            InlineKeyboardButton("📲 360p", callback_data="v_low")
+        ],
+        [InlineKeyboardButton("🔄 New Link", callback_data="clear")]
+    ])
+    
+    await message.reply_text(
+        f"🔗 **URL Ready:** `{url[:50]}...`\n\n"
+        "🎬 **Select VIDEO Quality:**",
+        reply_markup=video_kb,
+        parse_mode="markdown"
+    )
+    
+    # Audio buttons
+    audio_kb = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔊 320kbps", callback_data="a_320"),
+            InlineKeyboardButton("🎵 256kbps", callback_data="a_256")
+        ],
+        [
+            InlineKeyboardButton("📻 192kbps", callback_data="a_192"),
+            InlineKeyboardButton("🔉 128kbps", callback_data="a_128")
+        ],
+        [InlineKeyboardButton("📡 64kbps", callback_data="a_64")],
+        [InlineKeyboardButton("🔄 New Link", callback_data="clear")]
+    ])
+    
+    await message.reply_text("**Or select AUDIO Quality:** 🎵", reply_markup=audio_kb, parse_mode="markdown")
 
 @app.on_callback_query()
-async def callback_handler(client, callback_query: CallbackQuery):
-    data = callback_query.data
-    user_id = callback_query.from_user.id
-    await callback_query.answer()
+async def handle_callback(client, callback: CallbackQuery):
+    data = callback.data
+    chat_id = callback.message.chat.id
     
-    if user_id not in user_data:
-        return await callback_query.edit_message_text("❌ First send a video URL!")
+    if chat_id not in pending_urls:
+        return await callback.edit_message_text("❌ **Send URL first!**")
     
-    url = user_data[user_id]
+    url_data = pending_urls[chat_id]
+    url = url_data["url"]
     
-    if data == "video_menu":
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎥 4K UHD", callback_data="video_4k")],
-            [InlineKeyboardButton("📺 2K QHD", callback_data="video_2k")],
-            [InlineKeyboardButton("✨ 1080p FHD", callback_data="video_1080p")],
-            [InlineKeyboardButton("✅ 720p HD", callback_data="video_720p")],
-            [InlineKeyboardButton("📱 480p", callback_data="video_480p"), InlineKeyboardButton("📲 360p", callback_data="video_360p")],
-            [InlineKeyboardButton("🔙 New URL", callback_data="clear")]
-        ])
-        await callback_query.edit_message_text("🎬 **VIDEO QUALITY**", reply_markup=buttons)
+    if data == "clear":
+        pending_urls.pop(chat_id, None)
+        return await callback.edit_message_text("🔄 **Ready for new URL!** 🎉")
     
-    elif data == "audio_menu":
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔊 320kbps", callback_data="audio_320kbps"), InlineKeyboardButton("🎵 256kbps", callback_data="audio_256kbps")],
-            [InlineKeyboardButton("📻 192kbps", callback_data="audio_192kbps"), InlineKeyboardButton("🔉 128kbps", callback_data="audio_128kbps")],
-            [InlineKeyboardButton("📡 64kbps", callback_data="audio_64kbps")],
-            [InlineKeyboardButton("ℹ️ Max: 320kbps | Min: 64kbps", callback_data="audio_info")],
-            [InlineKeyboardButton("🔙 New URL", callback_data="clear")]
-        ])
-        await callback_query.edit_message_text("🎵 **AUDIO QUALITY**", reply_markup=buttons)
+    if data == "cookies_help":
+        return await callback.edit_message_text(
+            "**🍪 Cookies for Private Videos:**\n\n"
+            "1. Install: `Browser Cookies` extension\n"
+            "2. Login Instagram/Facebook in browser\n"
+            "3. Export cookies → Save as `cookies.txt`\n"
+            "4. Upload to bot folder\n\n"
+            "**Now private videos work!** 🔓"
+        )
     
-    elif data.startswith("video_"):
-        quality = data.split("_")[1]
-        await download_video(callback_query, url, quality)
-    
-    elif data.startswith("audio_"):
-        bitrate = data.split("_")[1]
-        await download_audio(callback_query, url, bitrate)
-    
-    elif data == "clear":
-        user_data.pop(user_id, None)
-        await callback_query.edit_message_text("🔄 Ready for new URL!")
-
-async def download_video(callback, url, quality):
-    await callback.edit_message_text(f"🚀 Downloading **{quality.upper()}** video...")
+    await callback.edit_message_text("🚀 **Downloading...** ⏳")
     
     try:
-        ydl_opts = {
-            'format': f'{VIDEO_QUALITIES[quality]}+bestaudio/best',
-            'outtmpl': f'downloads/%(title)200s_[{quality}]%(ext)s',
-            'merge_output_format': 'mp4'
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info).replace('.webm', '.mp4').replace('.mhtml', '.mp4')
-            
-            await callback.message.reply_video(
-                video=file_path,
-                caption=f"✅ **{quality.upper()} Video**\n📹 Resolution: {quality}\n💾 Size: {format(os.path.getsize(file_path)/1024/1024, '.1f')} MB"
-            )
-        
-        os.remove(file_path)
-        await callback.edit_message_text("✅ Video sent successfully!")
-        
+        if data.startswith("v_"):
+            quality = data[2:]
+            await download_video(callback, url, quality)
+        elif data.startswith("a_"):
+            bitrate = data[2:]
+            await download_audio(callback, url, bitrate)
     except Exception as e:
-        await callback.edit_message_text(f"❌ Error: {str(e)[:100]}")
+        await callback.edit_message_text(f"❌ **Failed:** `{str(e)}`", parse_mode="markdown")
 
-async def download_audio(callback, url, bitrate):
-    await callback.edit_message_text(f"🎵 Extracting **{bitrate}** audio...")
+async def download_video(callback: CallbackQuery, url: str, quality: str):
+    os.makedirs(downloads_dir, exist_ok=True)
     
-    try:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': f'downloads/%(title)200s_[{bitrate}]%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': AUDIO_BITRATES[bitrate],
-            }]
-        }
+    ydl_opts = {
+        'format': f'{VIDEO_QUALITIES[quality]}+bestaudio[ext=m4a]/best[height<=1080]',
+        'outtmpl': f'{downloads_dir}/%(title).200s_[{quality}]%(ext)s',
+        'merge_output_format': 'mp4',
+        'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        files = os.listdir(downloads_dir)
+        vid_file = next(f for f in files if f.endswith(f'[{quality}]'))
+        file_path = os.path.join(downloads_dir, vid_file)
         
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            file_path = ydl.prepare_filename(info).replace('.webm', '.mp3').replace('.mhtml', '.mp3')
-            
-            await callback.message.reply_audio(
-                audio=file_path,
-                title=info.get('title', 'Audio'),
-                performer=info.get('uploader', 'Unknown'),
-                caption=f"✅ **{bitrate} Audio**\n🔊 Bitrate: {bitrate}\n⏱️ Duration: {info.get('duration', 0)}s"
-            )
+        caption = (
+            f"✅ **{quality.upper()} VIDEO**\n"
+            f"📹 **{info.get('title', 'Unknown')[:50]}**\n"
+            f"👤 **{info.get('uploader', 'Unknown')}**\n"
+            f"⏱️ **{info.get('duration', 0)}s**"
+        )
         
-        os.remove(file_path)
-        await callback.edit_message_text("✅ Audio sent successfully!")
+        await callback.message.reply_video(
+            video=file_path,
+            caption=caption,
+            supports_streaming=True,
+            progress=upload_progress
+        )
+    
+    os.remove(file_path)
+    await callback.edit_message_text("✅ **Video Delivered!** 🎬")
+
+async def download_audio(callback: CallbackQuery, url: str, bitrate: str):
+    os.makedirs(downloads_dir, exist_ok=True)
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': f'{downloads_dir}/%(title).200s_[{bitrate}]%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': bitrate.rstrip('kbps'),
+        }],
+        'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        files = os.listdir(downloads_dir)
+        audio_file = next(f for f in files if f.endswith(f'[{bitrate}]'))
+        file_path = os.path.join(downloads_dir, audio_file)
         
-    except Exception as e:
-        await callback.edit_message_text(f"❌ Error: {str(e)[:100]}")
+        await callback.message.reply_audio(
+            audio=file_path,
+            title=info.get('title', 'Audio'),
+            performer=info.get('uploader', 'Unknown'),
+            caption=f"✅ **{bitrate} AUDIO** | ⏱️ {info.get('duration', 0)}s"
+        )
+    
+    os.remove(file_path)
+    await callback.edit_message_text("✅ **Audio Delivered!** 🎵")
+
+def is_valid_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.scheme and parsed.netloc and any(
+        platform in parsed.netloc.lower() for platform in 
+        ['youtube', 'youtu.be', 'instagram', 'facebook', 'tiktok', 'twitter', 'x.com']
+    ))
+
+async def upload_progress(current: int, total: int, *args):
+    percent = (current / total) * 100
+    print(f"Upload: {percent:.1f}%")
 
 if __name__ == "__main__":
-    os.makedirs("downloads", exist_ok=True)
-    print("🤖 Starting Video Downloader Bot...")
+    os.makedirs(downloads_dir, exist_ok=True)
+    print("🤖 KawaII5Bot Production Ready! 🚀")
     app.run()
