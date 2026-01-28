@@ -13,8 +13,12 @@ API_HASH = os.getenv("68f5e26ac13f659083814b1f032ffc29")
 app = Client("kawaii_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 downloads_dir = "downloads"
+pending_urls = {}
 
-# =============== COOKIE FILES ===============
+# ================= QUEUE SYSTEM =================
+download_queue = asyncio.Queue()
+
+# ================= COOKIE FILES =================
 COOKIE_FILES = {
     "instagram": "cookies/instagram.txt",
     "facebook": "cookies/facebook.txt",
@@ -24,7 +28,7 @@ COOKIE_FILES = {
     "x": "cookies/twitter.txt",
 }
 
-# =============== VIDEO QUALITIES ===============
+# ================= VIDEO QUALITIES =================
 VIDEO_QUALITIES = {
     "4k": "bestvideo[height>=2160]+bestaudio/best",
     "2k": "bestvideo[height>=1440]+bestaudio/best",
@@ -34,20 +38,18 @@ VIDEO_QUALITIES = {
     "low": "bestvideo[height<=360]+bestaudio/best"
 }
 
-pending_urls = {}
-
 # ================= HELPERS =================
 def get_platform(url: str):
-    domain = urlparse(url).netloc.lower()
-    if "instagram" in domain:
+    d = urlparse(url).netloc.lower()
+    if "instagram" in d:
         return "instagram"
-    if "facebook" in domain:
+    if "facebook" in d:
         return "facebook"
-    if "youtu" in domain:
+    if "youtu" in d:
         return "youtube"
-    if "tiktok" in domain:
+    if "tiktok" in d:
         return "tiktok"
-    if "twitter" in domain or "x.com" in domain:
+    if "twitter" in d or "x.com" in d:
         return "twitter"
     return None
 
@@ -57,20 +59,30 @@ def get_cookie_file(url: str):
     return cookie if cookie and os.path.exists(cookie) else None
 
 def is_valid_url(url: str) -> bool:
-    parsed = urlparse(url)
-    return bool(parsed.scheme and parsed.netloc)
+    p = urlparse(url)
+    return bool(p.scheme and p.netloc)
+
+# ================= QUEUE WORKER =================
+async def queue_worker():
+    while True:
+        job = await download_queue.get()
+        try:
+            mode, callback, url, value = job
+            if mode == "video":
+                await download_video(callback, url, value)
+            else:
+                await download_audio(callback, url, value)
+        except Exception as e:
+            await callback.message.reply(f"❌ Download failed:\n`{e}`")
+        finally:
+            download_queue.task_done()
 
 # ================= START =================
 @app.on_message(filters.command("start"))
 async def start(client, message: Message):
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎬 VIDEO DOWNLOAD", callback_data="video")],
-        [InlineKeyboardButton("🎵 AUDIO ONLY", callback_data="audio")]
-    ])
     await message.reply_text(
         "🎥 **KawaII5Bot Downloader**\n\n"
-        "Send any video link 👇",
-        reply_markup=kb
+        "Send a video link 👇"
     )
 
 # ================= URL INPUT =================
@@ -114,22 +126,23 @@ async def handle_callback(client, callback: CallbackQuery):
     url = pending_urls[chat_id]
     data = callback.data
 
-    await callback.edit_message_text("⏳ Downloading...")
+    if data.startswith("v_"):
+        quality = data[2:]
+        await download_queue.put(("video", callback, url, quality))
+    elif data.startswith("a_"):
+        bitrate = data[2:]
+        await download_queue.put(("audio", callback, url, bitrate))
+    else:
+        return
 
-    try:
-        if data.startswith("v_"):
-            quality = data[2:]
-            await download_video(callback, url, quality)
-        elif data.startswith("a_"):
-            bitrate = data[2:]
-            await download_audio(callback, url, bitrate)
-    except Exception as e:
-        await callback.edit_message_text(f"❌ Error:\n`{e}`")
+    position = download_queue.qsize()
+    await callback.edit_message_text(
+        f"✅ Added to queue\n⏳ Position: **{position}**"
+    )
 
 # ================= VIDEO =================
 async def download_video(callback: CallbackQuery, url: str, quality: str):
     os.makedirs(downloads_dir, exist_ok=True)
-
     cookie_file = get_cookie_file(url)
 
     ydl_opts = {
@@ -156,12 +169,10 @@ async def download_video(callback: CallbackQuery, url: str, quality: str):
     )
 
     os.remove(file_path)
-    await callback.edit_message_text("✅ Done")
 
 # ================= AUDIO =================
 async def download_audio(callback: CallbackQuery, url: str, bitrate: str):
     os.makedirs(downloads_dir, exist_ok=True)
-
     cookie_file = get_cookie_file(url)
 
     ydl_opts = {
@@ -191,9 +202,10 @@ async def download_audio(callback: CallbackQuery, url: str, bitrate: str):
     )
 
     os.remove(file_path)
-    await callback.edit_message_text("✅ Done")
 
 # ================= RUN =================
 if __name__ == "__main__":
     os.makedirs(downloads_dir, exist_ok=True)
+    loop = asyncio.get_event_loop()
+    loop.create_task(queue_worker())
     app.run()
