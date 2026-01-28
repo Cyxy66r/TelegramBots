@@ -2,4 +2,3 @@ pyrogram==2.0.106
 TGCrypto==1.2.5
 yt-dlp==2024.10.22
 aiofiles==23.2.1
-requests==2.31.0
