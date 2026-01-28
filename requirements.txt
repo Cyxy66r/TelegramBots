@@ -1,5 +1,4 @@
 pyrogram==2.0.106
-TgApiModule==1.0.43
-yt-dlp==2024.10.7
-aiohttp==3.9.5
-ffmpeg-python==0.2.0
+TGCrypto==1.2.5
+yt-dlp==2024.10.22
+aiofiles==23.2.1
